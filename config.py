@@ -1,14 +1,16 @@
 import os
 
-# 1. Telegram bot tokeningiz (@BotFather'dan olingan)
-BOT_TOKEN = "SIZNING_BOT_TOKENINGIZNI_SHU_YERGA_YOZING"
+# Telegram Bot Token
+BOT_TOKEN = "7944352953:AAGy3vEqM7gqwLJly0xs5upRX7CbGDaHJWA"
 
-# 2. Loyihaning asosiy papkasi yo'lini avtomatik aniqlash
+# RapidAPI - Bu eng ishonchli yo'l. Sessionid kabi tez o'lib qolmaydi.
+# SIZNING OXIRGI SKRINSHOTDAGI AKTIV KALITINGIZ:
+RAPIDAPI_KEY = "62b161efd8mshb89646ba94f2865p11bc06jsnab8d7da726e"
+RAPIDAPI_HOST = "instagram120.p.rapidapi.com"
+
+# Kataloglar
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads")
 
-# 3. Cookies fayli yo'li (Instagram/YouTube kabi tarmoqlardan xatosiz yuklash uchun)
-COOKIES_FILE = os.path.join(BASE_DIR, "cookies.txt")
-
-# 4. Qo'shimcha sozlamalar (ixtiyoriy)
-# Bot xatolik bersa yoki statistika ko'rish uchun o'zingizning Telegram ID raqamingiz
-ADMIN_IDS = [123456789]
+if not os.path.exists(DOWNLOAD_DIR):
+    os.makedirs(DOWNLOAD_DIR)

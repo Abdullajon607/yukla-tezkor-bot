@@ -1,7 +1,9 @@
 import sqlite3
 import logging
+import os
+from config import BASE_DIR
 
-DB_NAME = "database.db"
+DB_NAME = os.path.join(BASE_DIR, "database.db")
 
 def init_db():
     """Bazani va jadvallarni yaratish (agar yo'q bo'lsa)"""
