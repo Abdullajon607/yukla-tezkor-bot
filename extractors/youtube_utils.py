@@ -21,23 +21,20 @@ def get_yt_formats(url: str) -> dict:
             duration = info.get('duration', 0)
             vid = info.get('id')
             thumbnail = info.get('thumbnail')
-            # Shorts videoni aniqlash
-            is_short = (duration > 0 and duration <= 65) or "/shorts/" in url
+            # Shorts videoni faqat havolasida "shorts" so'zi borligiga qarab aniqlaymiz
+            is_short = "/shorts/" in url.lower()
             
             # Agar Shorts bo'lsa, faqat 720p taklif qilamiz
             if is_short:
                 return {"status": True, "title": title, "is_short": True}
 
-            # Oddiy videolar uchun bir nechta sifatlarni taklif qilamiz
-            formats_to_show = []
-            qualities = [480, 720, 1080]
-            
-            # Mavjud formatlarni tekshirish
-            available_heights = {f.get('height') for f in info.get('formats', []) if f.get('vcodec') != 'none'}
-            
-            for q in qualities:
-                if q in available_heights:
-                    formats_to_show.append({'quality': f'{q}p'})
+            # Oddiy videolar uchun barcha sifatlarni doimiy ko'rsatamiz (yt-dlp o'zi eng yaqinini tanlab oladi)
+            formats_to_show = [
+                {'quality': '360p'},
+                {'quality': '480p'},
+                {'quality': '720p'},
+                {'quality': '1080p'}
+            ]
             
             # Audio varianti
             formats_to_show.append({'quality': 'audio'})
