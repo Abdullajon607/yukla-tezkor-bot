@@ -240,13 +240,15 @@ async def handle_universal(message: types.Message):
                                 file_path = await _download_media(media['url'], media['type'])
                                 media_input = types.FSInputFile(file_path)
                                 
-                                if media['type'] == 'video':
-                                    sent_msg = await message.answer_video(video=media_input, caption=caption, parse_mode=ParseMode.MARKDOWN)
-                                else:
-                                    sent_msg = await message.answer_photo(photo=media_input, caption=caption, parse_mode=ParseMode.MARKDOWN)
-                                    
-                                # Xotira to'lmasligi uchun kompyuterga tushgan faylni srazu o'chiramiz
-                                os.remove(file_path)
+                                try:
+                                    if media['type'] == 'video':
+                                        sent_msg = await message.answer_video(video=media_input, caption=caption, parse_mode=ParseMode.MARKDOWN)
+                                    else:
+                                        sent_msg = await message.answer_photo(photo=media_input, caption=caption, parse_mode=ParseMode.MARKDOWN)
+                                finally:
+                                    # Xotira to'lmasligi uchun kompyuterga tushgan faylni srazu o'chiramiz
+                                    if os.path.exists(file_path):
+                                        os.remove(file_path)
 
                             # Bazaga birinchi media ID sini kesh qilish
                             if sent_msg:

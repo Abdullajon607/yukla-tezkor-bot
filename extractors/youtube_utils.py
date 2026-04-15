@@ -84,11 +84,12 @@ def download_yt_by_quality(url: str, quality: str) -> dict:
                 return {"status": True, "file_path": downloaded_file}
             else:
                 base, _ = os.path.splitext(downloaded_file)
-                if os.path.exists(base + ".mkv"):
-                     if os.path.getsize(base + ".mkv") > 50 * 1024 * 1024:
-                        os.remove(base + ".mkv")
-                        return {"status": False, "error": f"Tanlangan sifatdagi video hajmi 50MB dan katta."}
-                     return {"status": True, "file_path": base + ".mkv"}
+                for ext in ['.mp4', '.mkv', '.webm', '.m4a']:
+                    if os.path.exists(base + ext):
+                        if os.path.getsize(base + ext) > 50 * 1024 * 1024:
+                            os.remove(base + ext)
+                            return {"status": False, "error": f"Tanlangan sifatdagi video hajmi 50MB dan katta."}
+                        return {"status": True, "file_path": base + ext}
                 return {"status": False, "error": "Faylni yuklab bo'lmadi."}
     except Exception as e:
         logging.error(f"YouTube yuklash xatosi: {e}")
