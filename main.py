@@ -4,18 +4,27 @@ import asyncio
 import uuid
 import aiohttp
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.enums import ParseMode
+from aiogram.enums import ParseMode, ChatAction
 from aiogram.filters import Command
+from aiogram.filters.callback_data import CallbackData
 from aiogram.utils.chat_action import ChatActionSender
-from aiogram.utils.media_group import MediaGroupBuilder
 from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from config import BOT_TOKEN, DOWNLOAD_DIR
+from config import BOT_TOKEN, DOWNLOAD_DIR, BASE_DIR
 from extractors.universal_loader import get_universal_media
 from database import init_db, get_file_id, save_file_id
+from extractors.youtube_utils import get_yt_formats, download_yt_by_quality
 
 # Professional Logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, 
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(os.path.join(BASE_DIR, "bot.log"), encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger(__name__)
 
 # Katta fayllar va albomlar yuborishda uzilish bo'lmasligi uchun kutish vaqtini (timeout) uzaytiramiz
@@ -26,6 +35,11 @@ dp = Dispatcher()
 # Bir vaqtning o'zida nechta yuklash jarayoni ishlashi mumkinligini belgilaymiz.
 # Ko'proq odam bir vaqtda ishlashi va qotib qolmasligi uchun uni 15 ga oshiramiz.
 download_semaphore = asyncio.Semaphore(15)
+
+# YouTube sifatini tanlash uchun CallbackData Factory
+class YouTubeCallback(CallbackData, prefix="yt"):
+    quality: str
+    vid: str
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
@@ -40,8 +54,110 @@ async def cmd_start(message: types.Message):
         parse_mode=ParseMode.MARKDOWN
     )
 
+# YouTube uchun alohida handler
+@dp.message(F.text.regexp(r'https?://(?:www\.)?(?:youtube\.com/|youtu\.be/)'))
+async def handle_youtube_link(message: types.Message):
+    url = message.text
+    wait_msg = await message.answer("⏳")
+
+    # Mavjud formatlarni olish
+    formats_info = await asyncio.to_thread(get_yt_formats, url)
+    
+    if not formats_info.get("status"):
+        await wait_msg.edit_text(f"⚠️ Xatolik: {formats_info.get('error', 'Noma`lum xato')}")
+        return
+
+    # Agar bu Shorts video bo'lsa, tugmalarsiz to'g'ridan-to'g'ri 720p da yuklaymiz
+    if formats_info.get("is_short"):
+        await wait_msg.edit_text("⏳ **Shorts video yuklanmoqda...**", parse_mode=ParseMode.MARKDOWN)
+        
+        async with ChatActionSender(bot=bot, chat_id=message.chat.id, action=ChatAction.UPLOAD_VIDEO):
+            async with download_semaphore:
+                result = await asyncio.to_thread(download_yt_by_quality, url=url, quality='720p')
+            
+            if result.get("status"):
+                try:
+                    video_file = types.FSInputFile(result["file_path"])
+                    await message.answer_video(video=video_file, caption="✅ **Tayyor!**\n\n🚀 @Yukla_Tezkor_Bot orqali yuklandi.")
+                    await wait_msg.delete()
+                except Exception as e:
+                    logger.error(f"YouTube Shorts videosini yuborishda xato: {e}")
+                    await wait_msg.edit_text("❌ Videoni yuborishda xatolik yuz berdi.")
+                finally:
+                    if os.path.exists(result["file_path"]):
+                        os.remove(result["file_path"])
+            else:
+                await wait_msg.edit_text(f"⚠️ Xatolik: {result.get('error', 'Noma`lum xato')}")
+        return
+
+    # Oddiy videolar uchun sifat tanlash tugmalarini yasaymiz
+    builder = InlineKeyboardBuilder()
+    vid = formats_info.get("vid")
+    for fmt in formats_info["formats"]:
+        quality = fmt['quality']
+        text = f"🎬 {quality}" if quality != 'audio' else "🎵 Audio (m4a)"
+        
+        builder.button(
+            text=text,
+            callback_data=YouTubeCallback(quality=quality, vid=vid).pack()
+        )
+    
+    builder.adjust(2) # Har qatorda 2 ta tugma
+    
+    await wait_msg.delete() # Eski kutish xabarini o'chiramiz
+    caption_text = f"**Video:** `{formats_info['title']}`\n\nYuklab olish uchun formatni tanlang:"
+    
+    if formats_info.get("thumbnail"):
+        try:
+            await message.answer_photo(
+                photo=formats_info["thumbnail"],
+                caption=caption_text,
+                reply_markup=builder.as_markup(),
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception as e:
+            logger.warning(f"Rasm yuborishda xatolik (Matn yuborilmoqda): {e}")
+            await message.answer(text=caption_text, reply_markup=builder.as_markup(), parse_mode=ParseMode.MARKDOWN)
+    else:
+        await message.answer(text=caption_text, reply_markup=builder.as_markup(), parse_mode=ParseMode.MARKDOWN)
+
+# YouTube sifatini tanlash tugmasi bosilganda ishlaydigan handler
+@dp.callback_query(YouTubeCallback.filter())
+async def handle_youtube_quality(query: types.CallbackQuery, callback_data: YouTubeCallback):
+    try:
+        await query.message.edit_caption(caption="⏳ **Tanlangan sifatda yuklanmoqda...**", parse_mode=ParseMode.MARKDOWN)
+    except:
+        await query.message.edit_text("⏳ **Tanlangan sifatda yuklanmoqda...**", parse_mode=ParseMode.MARKDOWN)
+    
+    url = f"https://youtu.be/{callback_data.vid}"
+    quality = callback_data.quality
+    
+    action = ChatAction.UPLOAD_VIDEO if quality != 'audio' else ChatAction.UPLOAD_DOCUMENT
+    
+    async with ChatActionSender(bot=bot, chat_id=query.from_user.id, action=action):
+        async with download_semaphore:
+            result = await asyncio.to_thread(download_yt_by_quality, url, quality)
+            
+        if result.get("status"):
+            try:
+                file_input = types.FSInputFile(result["file_path"])
+                caption = "✅ **Tayyor!**\n\n🚀 @Yukla_Tezkor_Bot orqali yuklandi."
+                
+                if quality == 'audio': await query.message.answer_audio(audio=file_input, caption=caption)
+                else: await query.message.answer_video(video=file_input, caption=caption)
+                
+                await query.message.delete()
+            except Exception as e:
+                logger.error(f"YouTube faylini yuborishda xato: {e}")
+                await query.message.answer("❌ Faylni yuborishda xatolik yuz berdi.")
+            finally:
+                if os.path.exists(result["file_path"]):
+                    os.remove(result["file_path"])
+        else:
+            await query.message.edit_text(f"⚠️ **Xatolik:** {result.get('error', 'Noma`lum xato')}", parse_mode=ParseMode.MARKDOWN)
+
 # Barcha qo'llab-quvvatlanadigan platformalar uchun universal handler
-@dp.message(F.text.regexp(r'https?://(?:www\.)?(?:instagram\.com/|tiktok\.com/|vm\.tiktok\.com/|vt\.tiktok\.com/|pinterest\.com/|pin\.it/|snapchat\.com/|threads\.net/|youtube\.com/|youtu\.be/)'))
+@dp.message(F.text.regexp(r'https?://(?:www\.)?(?:instagram\.com/|tiktok\.com/|vm\.tiktok\.com/|vt\.tiktok\.com/|pinterest\.com/|pin\.it/|snapchat\.com/|threads\.net/)'))
 async def handle_universal(message: types.Message):
     url = message.text
     
