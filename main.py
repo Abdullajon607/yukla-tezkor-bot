@@ -28,7 +28,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Katta fayllar va albomlar yuborishda uzilish bo'lmasligi uchun kutish vaqtini (timeout) uzaytiramiz
-session = AiohttpSession(timeout=600)
+# PythonAnywhere bepul tarifi uchun avtomatik proksi sozlamasi (Kompyuteringizda xato bermaydi)
+PROXY_URL = "http://proxy.server:3128" if "PYTHONANYWHERE_SITE" in os.environ else None
+
+session = AiohttpSession(proxy=PROXY_URL, timeout=600)
 bot = Bot(token=BOT_TOKEN, session=session)
 dp = Dispatcher()
 
@@ -212,7 +215,7 @@ async def handle_universal(message: types.Message):
                         fname = f"insta_{uuid.uuid4().hex[:6]}.{ext}"
                         fpath = os.path.join(DOWNLOAD_DIR, fname)
                         async with aiohttp.ClientSession() as http_session:
-                            async with http_session.get(m_url) as r:
+                            async with http_session.get(m_url, proxy=PROXY_URL) as r:
                                 r.raise_for_status()
                                 with open(fpath, 'wb') as f:
                                     async for chunk in r.content.iter_chunked(1024*1024): # 1 MB dan tortish (Tezlik uchun)
