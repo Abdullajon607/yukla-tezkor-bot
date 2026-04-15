@@ -10,6 +10,7 @@ from aiogram.filters.callback_data import CallbackData
 from aiogram.utils.chat_action import ChatActionSender
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiohttp import web
 
 from config import BOT_TOKEN, DOWNLOAD_DIR, BASE_DIR
 from extractors.universal_loader import get_universal_media
@@ -311,10 +312,24 @@ async def handle_universal(message: types.Message):
             logger.warning(f"Yuklash xatosi (Terminal uchun): {error_msg}")
             await wait_msg.edit_text(f"⚠️ **Xatolik:** {error_msg}", parse_mode=ParseMode.MARKDOWN)
 
+async def ping_handler(request):
+    return web.Response(text="Bot muvaffaqiyatli ishlamoqda 🚀")
+
 async def main():
     logger.info("Bot ishga tushmoqda...")
     init_db()  # Bot ishga tushishidan oldin bazani tayyorlash
     await bot.delete_webhook(drop_pending_updates=True)
+    
+    # Render.com uchun qalbaki veb-server ishga tushiramiz
+    app = web.Application()
+    app.router.add_get('/', ping_handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logger.info(f"Web server port {port} da ishga tushdi...")
+    
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
