@@ -2,14 +2,16 @@ import os
 import uuid
 import logging
 import yt_dlp
-from config import DOWNLOAD_DIR
+from config import DOWNLOAD_DIR, BASE_DIR
 
 def get_yt_formats(url: str) -> dict:
     """YouTube URL uchun mavjud video va audio formatlarini oladi."""
+    cookies_path = os.path.join(BASE_DIR, "cookies.txt")
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
         'noplaylist': True,
+        'cookiefile': cookies_path if os.path.exists(cookies_path) else None,
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -59,6 +61,7 @@ def download_yt_by_quality(url: str, quality: str) -> dict:
         # FFmpeg talab qilmasligi uchun bitta fayl (video+audio birga) formatini tanlaymiz
         format_selector = f'b[height<={height}][ext=mp4]/b[height<={height}]/best'
 
+    cookies_path = os.path.join(BASE_DIR, "cookies.txt")
     ydl_opts = {
         'format': format_selector,
         'outtmpl': file_path_template,
@@ -66,6 +69,7 @@ def download_yt_by_quality(url: str, quality: str) -> dict:
         'no_warnings': True,
         'noplaylist': True,
         'socket_timeout': 15,
+        'cookiefile': cookies_path if os.path.exists(cookies_path) else None,
     }
     
     try:
