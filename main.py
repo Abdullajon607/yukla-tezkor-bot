@@ -190,6 +190,23 @@ async def handle_youtube_link(message: types.Message):
         return
     url = match.group(1)
     
+    # 1. Avval bazadan (keshdan) tekshiramiz
+    cached_file = get_file_id(url)
+    if cached_file:
+        file_id, media_type = cached_file
+        caption = f"🚀 @{BOT_USERNAME} orqali yuklandi."
+        try:
+            if media_type == "video":
+                await message.answer_video(video=file_id, caption=caption)
+            elif media_type == "audio":
+                await message.answer_audio(audio=file_id, caption=caption)
+            elif media_type == "photo":
+                await message.answer_photo(photo=file_id, caption=caption)
+            return
+        except Exception as e:
+            logger.error(f"YouTube keshidan yuborishda xato: {e}")
+            # Agar keshdan yuborib bo'lmasa (masalan file_id eskirgan), pastga davom etadi
+
     wait_msg = await message.answer("⏳")
 
     # Mavjud formatlarni olish
@@ -199,20 +216,44 @@ async def handle_youtube_link(message: types.Message):
         await wait_msg.edit_text(f"⚠️ Xatolik: {formats_info.get('error', 'Noma`lum xato')}")
         return
 
-    # Agar bu Shorts video bo'lsa, tugmalarsiz to'g'ridan-to'g'ri 720p da yuklaymiz
-    # Foydalanuvchi talabiga binoan: Shorts uchun faqat audio yuklash tugmasini chiqaramiz
+    # 2. Agar bu Shorts video bo'lsa, INSTAGRAM kabi avtomatik yuklaymiz
     if formats_info.get("is_short"):
-        builder = InlineKeyboardBuilder()
-        vid = formats_info.get("vid")
-        builder.button(
-            text="🎵 Audio (m4a)",
-            callback_data=YouTubeCallback(quality='audio', vid=vid).pack()
-        )
-        builder.adjust(1) # Faqat bitta tugma
+        await wait_msg.edit_text("⏳ **YouTube Shorts topildi. Yuklanmoqda...**", parse_mode=ParseMode.MARKDOWN)
+        
+        # To'g'ri formatdagi URL ni shakllantiramiz
+        url = f"https://youtu.be/{formats_info['vid']}"
+        
+        async with ChatActionSender(bot=bot, chat_id=message.chat.id, action=ChatAction.UPLOAD_VIDEO):
+            async with download_semaphore:
+                result = await asyncio.to_thread(download_yt_by_quality, url=url, quality='best')
+            
+            if result.get("status"):
+                try:
+                    file_size = os.path.getsize(result["file_path"]) / (1024 * 1024)
+                    if file_size > 50:
+                        await wait_msg.edit_text(f"⚠️ **Fayl juda katta ({file_size:.1f} MB)**. Limit 50MB.", parse_mode=ParseMode.MARKDOWN)
+                        return
 
-        await wait_msg.delete() # Eski kutish xabarini o'chiramiz
-        caption_text = f"🎬 **YouTube Shorts:** `{formats_info['title']}`\n\nUshbu videoni audio (MP3) formatida yuklab olishingiz mumkin 👇"
-        await message.answer_photo(photo=formats_info['thumbnail'], caption=caption_text, reply_markup=builder.as_markup(), parse_mode=ParseMode.MARKDOWN)
+                    video_file = types.FSInputFile(result["file_path"])
+                    caption = f"🚀 @{BOT_USERNAME} orqali yuklandi."
+
+                    sent_msg = await message.answer_video(video=video_file, caption=caption)
+                    await wait_msg.delete()
+                    
+                    # Keshga saqlash
+                    if sent_msg and sent_msg.video:
+                        save_file_id(url, sent_msg.video.file_id, "video")
+                except Exception as e:
+                    logger.error(f"YouTube Shorts videosini yuborishda xato: {e}")
+                    await wait_msg.edit_text("❌ Videoni yuborishda xatolik yuz berdi.")
+                finally:
+                    if os.path.exists(result["file_path"]):
+                        try:
+                            os.remove(result["file_path"])
+                        except Exception as e:
+                            logger.error(f"Faylni o'chirishda xatolik: {e}")
+            else:
+                await wait_msg.edit_text(f"⚠️ Xatolik: {result.get('error', 'Noma`lum xato')}", parse_mode=ParseMode.MARKDOWN)
         return
 
     # Oddiy videolar uchun sifat tanlash tugmalarini yasaymiz
@@ -275,8 +316,13 @@ async def handle_youtube_quality(query: types.CallbackQuery, callback_data: YouT
                 file_input = types.FSInputFile(result["file_path"])
                 caption = f"🚀 @{BOT_USERNAME} orqali yuklandi."
                 
-                if quality == 'audio': await query.message.answer_audio(audio=file_input, caption=caption)
-                else: await query.message.answer_video(video=file_input, caption=caption)
+                sent_msg = None
+                if quality == 'audio': 
+                    sent_msg = await query.message.answer_audio(audio=file_input, caption=caption)
+                    if sent_msg and sent_msg.audio: save_file_id(url, sent_msg.audio.file_id, "audio")
+                else: 
+                    sent_msg = await query.message.answer_video(video=file_input, caption=caption)
+                    if sent_msg and sent_msg.video: save_file_id(url, sent_msg.video.file_id, "video")
                 
                 await query.message.delete()
             except Exception as e:
@@ -473,7 +519,10 @@ async def ping_handler(request):
 async def main():
     logger.info("Bot ishga tushmoqda...")
     init_db()  # Bot ishga tushishidan oldin bazani tayyorlash
+    
+    # Konfliktni oldini olish uchun eski webhookni o'chiramiz va biroz kutamiz
     await bot.delete_webhook(drop_pending_updates=True)
+    await asyncio.sleep(1) 
     
     # Render.com uchun qalbaki veb-server ishga tushiramiz
     # Bot info ni bir marta yuklab olamiz

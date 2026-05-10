@@ -34,7 +34,8 @@ def get_yt_formats(url):
                 # acodec ni tekshirmaymiz, chunki YouTube ko'pincha ularni alohida saqlaydi
                 if h and h >= 360 and f.get('vcodec') and f.get('vcodec') != 'none':
                     q_str = f"{h}p"
-                    if q_str not in seen_qualities and h in [360, 480, 720, 1080, 1440]:
+                    # Faqat so'ralgan formatlarni (360, 480, 720, 1080) filtrlaymiz
+                    if q_str not in seen_qualities and h in [360, 480, 720, 1080]:
                         formats.append({'quality': q_str, 'format_id': f['format_id']})
                         seen_qualities.add(q_str)
             
@@ -43,6 +44,8 @@ def get_yt_formats(url):
             
             # Har doim audio variantini qo'shish
             formats.append({'quality': 'audio', 'format_id': 'bestaudio'})
+            # Shorts ekanligini aniqlash (Davomiylik yoki URL orqali)
+            is_short = info.get('duration', 0) < 60 or '/shorts/' in url or '/shorts/' in info.get('webpage_url', '')
 
             return {
                 "status": True, 
@@ -50,7 +53,7 @@ def get_yt_formats(url):
                 "vid": info['id'], 
                 "title": info['title'], 
                 "thumbnail": info.get('thumbnail'),
-                "is_short": info.get('duration', 0) < 60
+                "is_short": is_short
             }
     except Exception as e:
         logger.error(f"YouTube format olishda xato: {e}")

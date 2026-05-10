@@ -1,7 +1,7 @@
 import os
 
 # Telegram Bot Token
-BOT_TOKEN = "8743152447:AAFm8Mt2ZEax3BpQUcYgUFzh9vrHAvs4tdI" # Misol: "1234567890:ABCDEFGHIJKLMN_OPQRSTUVW_XYZ"
+BOT_TOKEN = "8743152447:AAHpp9-j4nSlrZW_7bYsru1VSRaPrk84AMQ" # Misol: "1234567890:ABCDEFGHIJKLMN_OPQRSTUVW_XYZ"
 
 # Kataloglar
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
