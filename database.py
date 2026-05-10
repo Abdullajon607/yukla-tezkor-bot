@@ -17,6 +17,11 @@ def init_db():
             media_type TEXT
         )
     ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY
+        )
+    ''')
     conn.commit()
     conn.close()
     logging.info("Ma'lumotlar bazasi ishga tushdi.")
@@ -45,3 +50,31 @@ def get_file_id(url: str):
     
     # Agar topsa (file_id, media_type) qaytaradi, topmasa None
     return result
+
+def add_user(user_id: int):
+    """Yangi foydalanuvchini bazaga qo'shish"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+def get_all_users():
+    """Barcha foydalanuvchilar ID larini olish"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_id FROM users")
+    users = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return users
+
+def get_users_count():
+    """Foydalanuvchilar sonini aniqlash"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM users")
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count

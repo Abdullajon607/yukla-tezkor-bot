@@ -23,8 +23,8 @@ def get_universal_media(url):
         cookies_path = os.path.join(BASE_DIR, "cookies.txt")
         
         ydl_opts = {
-            # Telegram uchun MP4 formatni majburlash va 50MB limitni nazorat qilish
-            'format': 'b[ext=mp4][filesize<=50M]/best[ext=mp4][filesize<=50M]/b[filesize<=50M]/best',
+            # Sifat va hajm cheklovlari olib tashlandi
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
             'outtmpl': file_path_template,
             'quiet': True,
             'no_warnings': True,

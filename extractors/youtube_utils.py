@@ -24,18 +24,18 @@ def get_yt_formats(url: str) -> dict:
             # Shorts videoni faqat havolasida "shorts" so'zi borligiga qarab aniqlaymiz
             is_short = "/shorts/" in url.lower()
             
-            # Agar Shorts bo'lsa, faqat 720p taklif qilamiz
             if is_short:
                 return {"status": True, "title": title, "is_short": True}
 
-            # Oddiy videolar uchun barcha sifatlarni doimiy ko'rsatamiz (yt-dlp o'zi eng yaqinini tanlab oladi)
-            formats_to_show = [
-                {'quality': '360p'},
-                {'quality': '480p'},
-                {'quality': '720p'},
-                {'quality': '1080p'}
-            ]
+            # Mavjud balandliklarni (height) yig'amiz
+            available_heights = set()
+            for f in info.get('formats', []):
+                if f.get('height'):
+                    available_heights.add(f['height'])
             
+            standard_qualities = [360, 480, 720, 1080]
+            formats_to_show = [{'quality': f"{h}p"} for h in standard_qualities if h <= max(available_heights, default=360)]
+
             # Audio varianti
             formats_to_show.append({'quality': 'audio'})
 
@@ -55,8 +55,8 @@ def download_yt_by_quality(url: str, quality: str) -> dict:
         format_selector = 'bestaudio[ext=m4a]/bestaudio/best'
     else:
         height = quality[:-1] # '720p' -> '720'
-        # FFmpeg talab qilmasligi uchun bitta fayl (video+audio birga) formatini tanlaymiz
-        format_selector = f'b[height<={height}][ext=mp4]/b[height<={height}]/best'
+        # 50MB limit bilan eng yaxshi format
+        format_selector = f'b[height<={height}][ext=mp4][filesize<=50M]/b[height<={height}][filesize<=50M]/best'
 
     cookies_path = os.path.join(BASE_DIR, "cookies.txt")
     ydl_opts = {
@@ -75,17 +75,11 @@ def download_yt_by_quality(url: str, quality: str) -> dict:
             downloaded_file = ydl.prepare_filename(info)
             
             if os.path.exists(downloaded_file):
-                if os.path.getsize(downloaded_file) > 50 * 1024 * 1024:
-                    os.remove(downloaded_file)
-                    return {"status": False, "error": f"Tanlangan sifatdagi video hajmi 50MB dan katta."}
                 return {"status": True, "file_path": downloaded_file}
             else:
                 base, _ = os.path.splitext(downloaded_file)
                 for ext in ['.mp4', '.mkv', '.webm', '.m4a']:
                     if os.path.exists(base + ext):
-                        if os.path.getsize(base + ext) > 50 * 1024 * 1024:
-                            os.remove(base + ext)
-                            return {"status": False, "error": f"Tanlangan sifatdagi video hajmi 50MB dan katta."}
                         return {"status": True, "file_path": base + ext}
                 return {"status": False, "error": "Faylni yuklab bo'lmadi."}
     except Exception as e:

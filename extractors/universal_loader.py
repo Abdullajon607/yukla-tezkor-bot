@@ -4,6 +4,7 @@ import logging
 import yt_dlp
 from config import DOWNLOAD_DIR, BASE_DIR
 from extractors.instagram_loader import get_insta_video
+from extractors.pinterest_loader import get_pinterest_media
 
 def get_universal_media(url):
     try:
@@ -14,6 +15,12 @@ def get_universal_media(url):
             if insta_result and insta_result.get("status"):
                 return insta_result
             logging.warning(f"Tezkor tizim xatosi: {insta_result.get('error', '')}. Zaxira sifatida yt-dlp ga o'tilmoqda...")
+
+        # Pinterest uchun maxsus modul
+        if "pinterest.com" in url.lower() or "pin.it" in url.lower():
+            pin_result = get_pinterest_media(url)
+            if pin_result and pin_result.get("status"):
+                return pin_result
             
         # Dinamik format (video bo'lsa mp4, audio bo'lsa m4a/mp3, rasm bo'lsa jpg/png avtomatik tanlanadi)
         file_name = f"media_{uuid.uuid4().hex[:6]}.%(ext)s"
@@ -23,8 +30,8 @@ def get_universal_media(url):
         cookies_path = os.path.join(BASE_DIR, "cookies.txt")
         
         ydl_opts = {
-            # Telegram uchun MP4 formatni majburlash va 50MB limitni nazorat qilish
-            'format': 'b[ext=mp4][filesize<=50M]/best[ext=mp4][filesize<=50M]/b[filesize<=50M]/best',
+            # Eng yaxshi sifat, lekin MP4 formatida va 50MB limitda
+            'format': 'bestvideo[ext=mp4][filesize<50M]+bestaudio[ext=m4a]/best[ext=mp4][filesize<50M]/best[filesize<50M]',
             'outtmpl': file_path_template,
             'quiet': True,
             'no_warnings': True,

@@ -17,12 +17,19 @@ def get_insta_video(url):
                 cj.load(ignore_discard=True, ignore_expires=True)
                 session.cookies.update(cj)
                 
+            # SessionID borligini tekshirish (Stories uchun shart)
+            has_session = any(cookie.name == 'sessionid' for cookie in session.cookies)
+            is_story = "stories" in url.lower()
+            
+            if is_story and not has_session:
+                return {"status": False, "error": "Instagram Stories yuklash uchun 'sessionid' cookie kerak. Iltimos, admin bilan bog'laning."}
+
             # Zamonaviy va ishonchli sarlavhalar (Eng asosiysi: X-IG-App-ID)
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                 "Accept-Language": "en-US,en;q=0.9",
-                "X-IG-App-ID": "936619743392459", # Instagramni to'liq sifatli JSON berishga majburlaydi
+                "X-IG-App-ID": "936619743392459",
                 "Sec-Fetch-Mode": "navigate"
             }
             
@@ -45,18 +52,24 @@ def get_insta_video(url):
                             elif n.get('display_url'):
                                 media_urls.append({'type': 'photo', 'url': n.get('display_url')})
                         return True
+
                     # REST karusel
                     if 'carousel_media' in obj and isinstance(obj['carousel_media'], list):
                         for c in obj['carousel_media']:
                             if 'video_versions' in c and c['video_versions']:
-                                media_urls.append({'type': 'video', 'url': c['video_versions'][0]['url']})
+                                # Eng yuqori sifatli videoni tanlash
+                                best_v = max(c['video_versions'], key=lambda x: x.get('width', 0) * x.get('height', 0))
+                                media_urls.append({'type': 'video', 'url': best_v['url']})
                             elif 'image_versions2' in c and 'candidates' in c['image_versions2']:
-                                media_urls.append({'type': 'photo', 'url': c['image_versions2']['candidates'][0]['url']})
+                                # Eng yuqori sifatli rasmni tanlash
+                                best_i = max(c['image_versions2']['candidates'], key=lambda x: x.get('width', 0) * x.get('height', 0))
+                                media_urls.append({'type': 'photo', 'url': best_i['url']})
                         return True
                         
                     # REST yagona video (Reels, Stories)
                     if 'video_versions' in obj and isinstance(obj['video_versions'], list) and len(obj['video_versions']) > 0:
-                        media_urls.append({'type': 'video', 'url': obj['video_versions'][0]['url']})
+                        best_v = max(obj['video_versions'], key=lambda x: x.get('width', 0) * x.get('height', 0))
+                        media_urls.append({'type': 'video', 'url': best_v['url']})
                         return True
                         
                     # GraphQL yagona video (Reels, IGTV)
@@ -68,7 +81,8 @@ def get_insta_video(url):
                     if 'image_versions2' in obj and 'candidates' in obj['image_versions2']:
                         cands = obj['image_versions2']['candidates']
                         if isinstance(cands, list) and len(cands) > 0:
-                            url_str = cands[0].get('url', '')
+                            best_i = max(cands, key=lambda x: x.get('width', 0) * x.get('height', 0))
+                            url_str = best_i.get('url', '')
                             if 'profile_pic' not in url_str:
                                 media_urls.append({'type': 'photo', 'url': url_str})
                                 return True
