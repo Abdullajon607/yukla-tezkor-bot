@@ -30,8 +30,8 @@ def get_universal_media(url):
         cookies_path = os.path.join(BASE_DIR, "cookies.txt")
         
         ydl_opts = {
-            # Avval tayyor MP4, bo'lmasa video+audio birlashtirish, hammasi 50MB dan kichik bo'lishi sharti bilan
-            'format': 'bestvideo[ext=mp4][filesize<50M]+bestaudio[ext=m4a]/best[ext=mp4][filesize<50M]/best[filesize<50M]/best',
+            # Format tanlashni ancha yumshatamiz: har qanday holatda ham yuklash uchun
+            'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/bestvideo[height<=720]+bestaudio/best[height<=720]/best',
             'outtmpl': file_path_template,
             'quiet': True,
             'no_warnings': True,
@@ -47,7 +47,8 @@ def get_universal_media(url):
                     'player_client': ['android', 'ios', 'web_creator']
                 }
             },
-            'ignoreerrors': True
+            'ignoreerrors': True,
+            'noprogress': True
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:

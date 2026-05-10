@@ -30,10 +30,11 @@ def get_yt_formats(url):
             # Mavjud sifatlarni aniqlaymiz
             for f in info.get('formats', []):
                 h = f.get('height')
-                # Faqat video streamlarni (vcodec != none) va standart o'lchamlarni olamiz
-                if h and h >= 360 and f.get('vcodec') != 'none':
+                # Faqat video streamlarni (vcodec != none) olamiz
+                # acodec ni tekshirmaymiz, chunki YouTube ko'pincha ularni alohida saqlaydi
+                if h and h >= 360 and f.get('vcodec') and f.get('vcodec') != 'none':
                     q_str = f"{h}p"
-                    if q_str not in seen_qualities and h in [360, 480, 720, 1080, 1440, 2160]:
+                    if q_str not in seen_qualities and h in [360, 480, 720, 1080, 1440]:
                         formats.append({'quality': q_str, 'format_id': f['format_id']})
                         seen_qualities.add(q_str)
             
@@ -61,15 +62,16 @@ def download_yt_by_quality(url, quality):
     file_path = os.path.join(DOWNLOAD_DIR, f"yt_{random_id}.%(ext)s")
     
     if quality == 'audio':
-        format_str = 'bestaudio[ext=m4a]/bestaudio/best'
+        format_str = 'bestaudio[ext=m4a]/bestaudio/best' # Eng yaxshi audio
     elif quality == 'best':
         format_str = 'best' # Hech qanday cheklovsiz eng yaxshi format
     else:
         q_num = quality.replace('p', '')
-        # 1. Tayyor MP4 (tezkor)
-        # 2. Tayyor har qanday format (tezkor)
-        # 3. Video + Audio birlashtirish (FFmpeg kerak, sekinroq lekin ishonchli)
-        format_str = f'best[height<={q_num}][ext=mp4]/best[height<={q_num}]/bestvideo[height<={q_num}]+bestaudio/best'
+        # 1. Video MP4 + Audio M4A (Eng yaxshi kombinatsiya)
+        # 2. Tayyor MP4 (Tezkor)
+        # 3. Har qanday video + Har qanday audio (FFmpeg orqali merge)
+        # 4. Eng yaxshi mavjud format
+        format_str = f'bestvideo[height<={q_num}][ext=mp4]+bestaudio[ext=m4a]/best[height<={q_num}][ext=mp4]/bestvideo[height<={q_num}]+bestaudio/best[height<={q_num}]/best'
 
     ydl_opts = {
         'format': format_str,
