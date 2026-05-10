@@ -27,21 +27,20 @@ def get_yt_formats(url):
             formats = []
             seen_qualities = set()
 
-            # Tayyor (video+audio birlashtirilgan) formatlarni qidiramiz
+            # Mavjud sifatlarni aniqlaymiz
             for f in info.get('formats', []):
-                height = f.get('height')
-                # acodec != 'none' bo'lsa merging shart emas, yuklash juda tez bo'ladi
-                if height and f.get('acodec') != 'none' and f.get('vcodec') != 'none':
-                    q_str = f"{height}p"
-                    if q_str not in seen_qualities and height >= 360:
+                h = f.get('height')
+                if h and h >= 360:
+                    q_str = f"{h}p"
+                    if q_str not in seen_qualities and h in [360, 480, 720, 1080]:
                         formats.append({'quality': q_str, 'format_id': f['format_id']})
                         seen_qualities.add(q_str)
             
-            # Audio formatini ham qo'shamiz
-            formats.append({'quality': 'audio', 'format_id': 'bestaudio'})
-
             # Sifat bo'yicha saralash
             formats.sort(key=lambda x: int(x['quality'].replace('p', '')) if 'p' in x['quality'] else 0)
+            
+            # Har doim audio variantini qo'shish
+            formats.append({'quality': 'audio', 'format_id': 'bestaudio'})
 
             return {
                 "status": True, 
@@ -65,9 +64,11 @@ def download_yt_by_quality(url, quality):
     elif quality == 'best':
         format_str = 'best' # Hech qanday cheklovsiz eng yaxshi format
     else:
-        # '+' belgisini olib tashlash merge jarayonini to'xtatadi va tezlikni oshiradi
         q_num = quality.replace('p', '')
-        format_str = f'best[height<={q_num}][ext=mp4]/best[height<={q_num}]/best'
+        # 1. Tayyor MP4 (tezkor)
+        # 2. Tayyor har qanday format (tezkor)
+        # 3. Video + Audio birlashtirish (FFmpeg kerak, sekinroq lekin ishonchli)
+        format_str = f'best[height<={q_num}][ext=mp4]/best[height<={q_num}]/bestvideo[height<={q_num}]+bestaudio/best'
 
     ydl_opts = {
         'format': format_str,

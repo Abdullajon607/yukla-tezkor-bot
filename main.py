@@ -209,10 +209,10 @@ async def handle_youtube_link(message: types.Message):
             callback_data=YouTubeCallback(quality='audio', vid=vid).pack()
         )
         builder.adjust(1) # Faqat bitta tugma
-        
+
         await wait_msg.delete() # Eski kutish xabarini o'chiramiz
-        caption_text = f"**Shorts video:** `{formats_info['title']}`\n\nFaqat audio yuklab olishingiz mumkin:"
-        await message.answer(text=caption_text, reply_markup=builder.as_markup(), parse_mode=ParseMode.MARKDOWN)
+        caption_text = f"🎬 **YouTube Shorts:** `{formats_info['title']}`\n\nUshbu videoni audio (MP3) formatida yuklab olishingiz mumkin 👇"
+        await message.answer_photo(photo=formats_info['thumbnail'], caption=caption_text, reply_markup=builder.as_markup(), parse_mode=ParseMode.MARKDOWN)
         return
 
     # Oddiy videolar uchun sifat tanlash tugmalarini yasaymiz
