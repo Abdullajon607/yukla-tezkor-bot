@@ -30,9 +30,10 @@ def get_yt_formats(url):
             # Mavjud sifatlarni aniqlaymiz
             for f in info.get('formats', []):
                 h = f.get('height')
-                if h and h >= 360:
+                # Faqat video streamlarni (vcodec != none) va standart o'lchamlarni olamiz
+                if h and h >= 360 and f.get('vcodec') != 'none':
                     q_str = f"{h}p"
-                    if q_str not in seen_qualities and h in [360, 480, 720, 1080]:
+                    if q_str not in seen_qualities and h in [360, 480, 720, 1080, 1440, 2160]:
                         formats.append({'quality': q_str, 'format_id': f['format_id']})
                         seen_qualities.add(q_str)
             
@@ -81,7 +82,8 @@ def download_yt_by_quality(url, quality):
             'youtube': {
                 'player_client': ['android', 'ios', 'web_creator']
             }
-        }
+        },
+        'ignoreerrors': True, # Ba'zi kichik xatolarda to'xtab qolmaslik uchun
     }
 
     try:
