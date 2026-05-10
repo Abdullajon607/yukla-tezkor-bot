@@ -15,6 +15,11 @@ def get_yt_formats(url):
         'nocheckcertificate': True,
         'skip_download': True,
         'cookiefile': cookies_path if os.path.exists(cookies_path) else None,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios', 'web_creator']
+            }
+        }
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -71,6 +76,11 @@ def download_yt_by_quality(url, quality):
         'nocheckcertificate': True,
         'no_warnings': True,
         'cookiefile': cookies_path if os.path.exists(cookies_path) else None,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios', 'web_creator']
+            }
+        }
     }
 
     try:

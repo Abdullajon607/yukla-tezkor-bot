@@ -42,6 +42,11 @@ def get_universal_media(url):
             'extract_flat': 'in_playlist',
             'socket_timeout': 10,
             'source_address': '0.0.0.0', # IPv6 dan keladigan kechikishlarni oldini olish
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['ios', 'web_creator']
+                }
+            }
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:

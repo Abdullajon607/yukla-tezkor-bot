@@ -200,35 +200,19 @@ async def handle_youtube_link(message: types.Message):
         return
 
     # Agar bu Shorts video bo'lsa, tugmalarsiz to'g'ridan-to'g'ri 720p da yuklaymiz
+    # Foydalanuvchi talabiga binoan: Shorts uchun faqat audio yuklash tugmasini chiqaramiz
     if formats_info.get("is_short"):
-        await wait_msg.edit_text("⏳ **Shorts video (Asl sifatda) yuklanmoqda...**", parse_mode=ParseMode.MARKDOWN)
+        builder = InlineKeyboardBuilder()
+        vid = formats_info.get("vid")
+        builder.button(
+            text="🎵 Audio (m4a)",
+            callback_data=YouTubeCallback(quality='audio', vid=vid).pack()
+        )
+        builder.adjust(1) # Faqat bitta tugma
         
-        async with ChatActionSender(bot=bot, chat_id=message.chat.id, action=ChatAction.UPLOAD_VIDEO):
-            async with download_semaphore:
-                result = await asyncio.to_thread(download_yt_by_quality, url=url, quality='best')
-            
-            if result.get("status"):
-                try:
-                    # Standart Telegram limiti: 50 MB
-                    file_size = os.path.getsize(result["file_path"]) / (1024 * 1024)
-                    if file_size > 50:
-                        await wait_msg.edit_text(f"⚠️ **Fayl juda katta ({file_size:.1f} MB)**. Limit 50MB.", parse_mode=ParseMode.MARKDOWN)
-                        return
-
-                    video_file = types.FSInputFile(result["file_path"])
-                    await message.answer_video(video=video_file, caption=f"🚀 @{BOT_USERNAME} orqali yuklandi.")
-                    await wait_msg.delete()
-                except Exception as e:
-                    logger.error(f"YouTube Shorts videosini yuborishda xato: {e}")
-                    await wait_msg.edit_text("❌ Videoni yuborishda xatolik yuz berdi.")
-                finally:
-                    if os.path.exists(result["file_path"]):
-                        try:
-                            os.remove(result["file_path"])
-                        except Exception as e:
-                            logger.error(f"Faylni o'chirishda xatolik: {e}")
-            else:
-                await wait_msg.edit_text(f"⚠️ Xatolik: {result.get('error', 'Noma`lum xato')}")
+        await wait_msg.delete() # Eski kutish xabarini o'chiramiz
+        caption_text = f"**Shorts video:** `{formats_info['title']}`\n\nFaqat audio yuklab olishingiz mumkin:"
+        await message.answer(text=caption_text, reply_markup=builder.as_markup(), parse_mode=ParseMode.MARKDOWN)
         return
 
     # Oddiy videolar uchun sifat tanlash tugmalarini yasaymiz
