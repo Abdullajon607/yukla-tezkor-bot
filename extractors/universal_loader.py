@@ -30,13 +30,18 @@ def get_universal_media(url):
         cookies_path = os.path.join(BASE_DIR, "cookies.txt")
         
         ydl_opts = {
-            # Eng yaxshi sifat, lekin MP4 formatida va 50MB limitda
-            'format': 'bestvideo[ext=mp4][filesize<50M]+bestaudio[ext=m4a]/best[ext=mp4][filesize<50M]/best[filesize<50M]',
+            # Eng tezkor format: Merging (birlashtirish) yo'q, faqat tayyor streamlar
+            'format': 'best[ext=mp4][filesize<50M]/best[filesize<50M]/best',
             'outtmpl': file_path_template,
             'quiet': True,
             'no_warnings': True,
+            'nocheckcertificate': True, # SSL tekshiruvini o'chirib tezlikni oshiradi
+            'no_color': True,
             'cookiefile': cookies_path if os.path.exists(cookies_path) else None,
-            'noplaylist': True, # Instagram istoriya yoki karuselda ortiqcha narsalarni yuklamaslik uchun
+            'noplaylist': True,
+            'extract_flat': 'in_playlist',
+            'socket_timeout': 10,
+            'source_address': '0.0.0.0', # IPv6 dan keladigan kechikishlarni oldini olish
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:

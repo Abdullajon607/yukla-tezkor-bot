@@ -2,30 +2,41 @@ import yt_dlp
 import os
 import uuid
 import logging
-from config import DOWNLOAD_DIR
+from config import DOWNLOAD_DIR, BASE_DIR
 
 logger = logging.getLogger(__name__)
+cookies_path = os.path.join(BASE_DIR, "cookies.txt")
 
 def get_yt_formats(url):
     """YouTube videosi uchun mavjud sifatlarni olish"""
-    ydl_opts = {'quiet': True, 'no_warnings': True}
+    ydl_opts = {
+        'quiet': True, 
+        'no_warnings': True,
+        'nocheckcertificate': True,
+        'skip_download': True,
+        'cookiefile': cookies_path if os.path.exists(cookies_path) else None,
+    }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             formats = []
             seen_qualities = set()
 
-            # Faqat video+audio bo'lgan yoki eng yaxshi mp4 formatlarni tanlaymiz
+            # Tayyor (video+audio birlashtirilgan) formatlarni qidiramiz
             for f in info.get('formats', []):
-                quality = f.get('format_note') or f.get('height')
-                if quality and f.get('ext') == 'mp4' and f.get('vcodec') != 'none':
-                    q_str = f"{quality}p" if isinstance(quality, int) else str(quality)
-                    if q_str not in seen_qualities and q_str in ['360p', '720p', '1080p']:
+                height = f.get('height')
+                # acodec != 'none' bo'lsa merging shart emas, yuklash juda tez bo'ladi
+                if height and f.get('acodec') != 'none' and f.get('vcodec') != 'none':
+                    q_str = f"{height}p"
+                    if q_str not in seen_qualities and height >= 360:
                         formats.append({'quality': q_str, 'format_id': f['format_id']})
                         seen_qualities.add(q_str)
             
             # Audio formatini ham qo'shamiz
             formats.append({'quality': 'audio', 'format_id': 'bestaudio'})
+
+            # Sifat bo'yicha saralash
+            formats.sort(key=lambda x: int(x['quality'].replace('p', '')) if 'p' in x['quality'] else 0)
 
             return {
                 "status": True, 
@@ -45,15 +56,21 @@ def download_yt_by_quality(url, quality):
     file_path = os.path.join(DOWNLOAD_DIR, f"yt_{random_id}.%(ext)s")
     
     if quality == 'audio':
-        format_str = 'bestaudio[ext=m4a]/bestaudio'
+        format_str = 'bestaudio[ext=m4a]/bestaudio/best'
+    elif quality == 'best':
+        format_str = 'best' # Hech qanday cheklovsiz eng yaxshi format
     else:
+        # '+' belgisini olib tashlash merge jarayonini to'xtatadi va tezlikni oshiradi
         q_num = quality.replace('p', '')
-        format_str = f'bestvideo[height<={q_num}][ext=mp4]+bestaudio[ext=m4a]/best[height<={q_num}][ext=mp4]/best'
+        format_str = f'best[height<={q_num}][ext=mp4]/best[height<={q_num}]/best'
 
     ydl_opts = {
         'format': format_str,
         'outtmpl': file_path,
         'quiet': True,
+        'nocheckcertificate': True,
+        'no_warnings': True,
+        'cookiefile': cookies_path if os.path.exists(cookies_path) else None,
     }
 
     try:

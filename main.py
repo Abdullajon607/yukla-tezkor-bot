@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 PROXY_URL = "http://proxy.server:3128" if "PYTHONANYWHERE_SITE" in os.environ else None
 
 # Standart Telegram API serveridan foydalanamiz
-session = AiohttpSession(proxy=PROXY_URL, timeout=600)
+session = AiohttpSession(proxy=PROXY_URL, timeout=300) # Timeoutni optimallashtiramiz
 bot = Bot(token=BOT_TOKEN, session=session, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
 dp = Dispatcher()
 
@@ -45,9 +45,8 @@ dp = Dispatcher()
 BOT_USERNAME = None
 BOT_FULL_NAME = None
 
-# Bir vaqtning o'zida nechta yuklash jarayoni ishlashi mumkinligini belgilaymiz.
-# Ko'proq odam bir vaqtda ishlashi va qotib qolmasligi uchun uni 15 ga oshiramiz.
-download_semaphore = asyncio.Semaphore(15)
+# Bir vaqtning o'zida ishlov berish limitini biroz oshiramiz (Serverga qarab 10-20 ideal)
+download_semaphore = asyncio.Semaphore(15) 
 
 # YouTube sifatini tanlash uchun CallbackData Factory
 class YouTubeCallback(CallbackData, prefix="yt"):
@@ -202,11 +201,11 @@ async def handle_youtube_link(message: types.Message):
 
     # Agar bu Shorts video bo'lsa, tugmalarsiz to'g'ridan-to'g'ri 720p da yuklaymiz
     if formats_info.get("is_short"):
-        await wait_msg.edit_text("⏳ **Shorts video yuklanmoqda...**", parse_mode=ParseMode.MARKDOWN)
+        await wait_msg.edit_text("⏳ **Shorts video (Asl sifatda) yuklanmoqda...**", parse_mode=ParseMode.MARKDOWN)
         
         async with ChatActionSender(bot=bot, chat_id=message.chat.id, action=ChatAction.UPLOAD_VIDEO):
             async with download_semaphore:
-                result = await asyncio.to_thread(download_yt_by_quality, url=url, quality='720p')
+                result = await asyncio.to_thread(download_yt_by_quality, url=url, quality='best')
             
             if result.get("status"):
                 try:
