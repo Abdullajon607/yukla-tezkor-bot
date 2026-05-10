@@ -17,4 +17,4 @@ HEADERS = {
 
 # Admin foydalanuvchilarining ID'lari ro'yxati
 # O'zingizning Telegram ID'ingizni bu yerga qo'shing.
-ADMIN_IDS = [55667788] # Bu yerga o'zingizning Telegram ID raqamingizni yozing
+ADMIN_IDS = [6907296588] # Bu yerga o'zingizning Telegram ID raqamingizni yozing
