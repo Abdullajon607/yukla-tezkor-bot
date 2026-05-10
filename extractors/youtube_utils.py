@@ -1,87 +1,65 @@
+import yt_dlp
 import os
 import uuid
 import logging
-import yt_dlp
-from config import DOWNLOAD_DIR, BASE_DIR
+from config import DOWNLOAD_DIR
 
-def get_yt_formats(url: str) -> dict:
-    """YouTube URL uchun mavjud video va audio formatlarini oladi."""
-    cookies_path = os.path.join(BASE_DIR, "cookies.txt")
-    ydl_opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'noplaylist': True,
-        'cookiefile': cookies_path if os.path.exists(cookies_path) else None,
-    }
+logger = logging.getLogger(__name__)
+
+def get_yt_formats(url):
+    """YouTube videosi uchun mavjud sifatlarni olish"""
+    ydl_opts = {'quiet': True, 'no_warnings': True}
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            
-            title = info.get('title', 'Noma`lum video')
-            duration = info.get('duration', 0)
-            vid = info.get('id')
-            thumbnail = info.get('thumbnail')
-            # Shorts videoni faqat havolasida "shorts" so'zi borligiga qarab aniqlaymiz
-            is_short = "/shorts/" in url.lower()
-            
-            if is_short:
-                return {"status": True, "title": title, "is_short": True}
+            formats = []
+            seen_qualities = set()
 
-            # Mavjud balandliklarni (height) yig'amiz
-            available_heights = set()
+            # Faqat video+audio bo'lgan yoki eng yaxshi mp4 formatlarni tanlaymiz
             for f in info.get('formats', []):
-                if f.get('height'):
-                    available_heights.add(f['height'])
+                quality = f.get('format_note') or f.get('height')
+                if quality and f.get('ext') == 'mp4' and f.get('vcodec') != 'none':
+                    q_str = f"{quality}p" if isinstance(quality, int) else str(quality)
+                    if q_str not in seen_qualities and q_str in ['360p', '720p', '1080p']:
+                        formats.append({'quality': q_str, 'format_id': f['format_id']})
+                        seen_qualities.add(q_str)
             
-            standard_qualities = [360, 480, 720, 1080]
-            formats_to_show = [{'quality': f"{h}p"} for h in standard_qualities if h <= max(available_heights, default=360)]
+            # Audio formatini ham qo'shamiz
+            formats.append({'quality': 'audio', 'format_id': 'bestaudio'})
 
-            # Audio varianti
-            formats_to_show.append({'quality': 'audio'})
-
-            return {"status": True, "title": title, "formats": formats_to_show, "is_short": False, "vid": vid, "thumbnail": thumbnail}
-
+            return {
+                "status": True, 
+                "formats": formats, 
+                "vid": info['id'], 
+                "title": info['title'], 
+                "thumbnail": info.get('thumbnail'),
+                "is_short": info.get('duration', 0) < 60
+            }
     except Exception as e:
-        logging.error(f"YouTube formatlarini olishda xato: {e}")
-        return {"status": False, "error": "Video ma'lumotlarini olib bo'lmadi."}
+        logger.error(f"YouTube format olishda xato: {e}")
+        return {"status": False, "error": str(e)}
 
-def download_yt_by_quality(url: str, quality: str) -> dict:
-    """YouTube videosini belgilangan sifatda yuklaydi."""
-    file_name = f"yt_{uuid.uuid4().hex[:6]}.%(ext)s"
-    file_path_template = os.path.join(DOWNLOAD_DIR, file_name)
-
-    format_selector = ""
-    if quality == 'audio':
-        format_selector = 'bestaudio[ext=m4a]/bestaudio/best'
-    else:
-        height = quality[:-1] # '720p' -> '720'
-        # 50MB limit bilan eng yaxshi format
-        format_selector = f'b[height<={height}][ext=mp4][filesize<=50M]/b[height<={height}][filesize<=50M]/best'
-
-    cookies_path = os.path.join(BASE_DIR, "cookies.txt")
-    ydl_opts = {
-        'format': format_selector,
-        'outtmpl': file_path_template,
-        'quiet': True,
-        'no_warnings': True,
-        'noplaylist': True,
-        'socket_timeout': 15,
-        'cookiefile': cookies_path if os.path.exists(cookies_path) else None,
-    }
+def download_yt_by_quality(url, quality):
+    """Tanlangan sifatda videoni yuklab olish"""
+    random_id = str(uuid.uuid4())[:6]
+    file_path = os.path.join(DOWNLOAD_DIR, f"yt_{random_id}.%(ext)s")
     
+    if quality == 'audio':
+        format_str = 'bestaudio[ext=m4a]/bestaudio'
+    else:
+        q_num = quality.replace('p', '')
+        format_str = f'bestvideo[height<={q_num}][ext=mp4]+bestaudio[ext=m4a]/best[height<={q_num}][ext=mp4]/best'
+
+    ydl_opts = {
+        'format': format_str,
+        'outtmpl': file_path,
+        'quiet': True,
+    }
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
-            downloaded_file = ydl.prepare_filename(info)
-            
-            if os.path.exists(downloaded_file):
-                return {"status": True, "file_path": downloaded_file}
-            else:
-                base, _ = os.path.splitext(downloaded_file)
-                for ext in ['.mp4', '.mkv', '.webm', '.m4a']:
-                    if os.path.exists(base + ext):
-                        return {"status": True, "file_path": base + ext}
-                return {"status": False, "error": "Faylni yuklab bo'lmadi."}
+            return {"status": True, "file_path": ydl.prepare_filename(info)}
     except Exception as e:
-        logging.error(f"YouTube yuklash xatosi: {e}")
-        return {"status": False, "error": "Videoni yuklashda xatolik yuz berdi."}
+        logger.error(f"YouTube yuklashda xato: {e}")
+        return {"status": False, "error": str(e)}

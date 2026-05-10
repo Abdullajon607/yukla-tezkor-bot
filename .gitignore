@@ -1,14 +1,10 @@
-# Python kesh fayllari
 __pycache__/
-*.py[cod]
-*$py.class
-
-# Maxfiy ma'lumotlar va baza
-database.db
-bot.log
-cookies.txt
+*.pyc
 .env
-
-# Yuklab olingan vaqtinchalik fayllar
+database.db
 downloads/
+*.log
+cookies.txt
+.vscode/
+.idea/
 venv/

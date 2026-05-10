@@ -1,7 +1,7 @@
 import os
 
 # Telegram Bot Token
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = "8743152447:AAFm8Mt2ZEax3BpQUcYgUFzh9vrHAvs4tdI" # Misol: "1234567890:ABCDEFGHIJKLMN_OPQRSTUVW_XYZ"
 
 # Kataloglar
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -17,4 +17,4 @@ HEADERS = {
 
 # Admin foydalanuvchilarining ID'lari ro'yxati
 # O'zingizning Telegram ID'ingizni bu yerga qo'shing.
-ADMIN_IDS = [123456789, 987654321] # Misol uchun ID'lar, o'zingiznikiga o'zgartiring
+ADMIN_IDS = [55667788] # Bu yerga o'zingizning Telegram ID raqamingizni yozing
