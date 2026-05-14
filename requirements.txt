@@ -1,5 +1,6 @@
-aiogram>=3.0
-yt-dlp
+aiogram
 aiohttp
-requests
+yt-dlp
+python-dotenv
 psutil
+requests

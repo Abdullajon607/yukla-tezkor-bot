@@ -4,8 +4,8 @@ import asyncio
 import uuid
 import aiohttp
 import re
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.enums import ParseMode, ChatAction
+from aiogram import Bot, Dispatcher, types, F, BaseMiddleware
+from aiogram.enums import ParseMode, ChatAction, ChatMemberStatus
 from aiogram.filters import Command
 from aiogram.filters.callback_data import CallbackData
 from aiogram.utils.chat_action import ChatActionSender
@@ -18,7 +18,7 @@ from aiohttp import web
 
 from config import BOT_TOKEN, DOWNLOAD_DIR, BASE_DIR, HEADERS, ADMIN_IDS
 from extractors.universal_loader import get_universal_media
-from database import init_db, get_file_id, save_file_id, add_user, get_all_users, get_users_count
+from database import init_db, get_file_id, save_file_id, add_user, get_all_users, get_users_count, get_mandatory_channels, add_mandatory_channel, remove_mandatory_channel
 from extractors.youtube_utils import get_yt_formats, download_yt_by_quality
 
 # Professional Logging
@@ -45,6 +45,51 @@ dp = Dispatcher()
 BOT_USERNAME = None
 BOT_FULL_NAME = None
 
+# Majburiy obunani tekshirish uchun Middleware
+class CheckJoinMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        user = data.get("event_from_user")
+        if not user or user.id in ADMIN_IDS:
+            return await handler(event, data)
+
+        channels = get_mandatory_channels()
+        if not channels:
+            return await handler(event, data)
+
+        not_joined = []
+        for channel in channels:
+            try:
+                member = await data['bot'].get_chat_member(chat_id=channel, user_id=user.id)
+                if member.status not in [ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.CREATOR]:
+                    not_joined.append(channel)
+            except Exception as e:
+                logger.error(f"Obunani tekshirishda xatolik ({channel}): {e}")
+
+        if not not_joined:
+            return await handler(event, data)
+
+        # Agar a'zo bo'lmasa, xabar yuboramiz
+        builder = InlineKeyboardBuilder()
+        for ch in not_joined:
+            builder.button(text=f"📢 A'zo bo'lish: {ch}", url=f"https://t.me/{ch.lstrip('@')}")
+        
+        builder.button(text="✅ Tekshirish", callback_data="check_subs")
+        builder.adjust(1)
+        
+        # Callback query yoki oddiy xabar ekanligini tekshiramiz
+        msg_method = event.answer if isinstance(event, types.Message) else event.message.answer
+        
+        await msg_method(
+            "🚀 **Botdan foydalanish uchun quyidagi kanallarga a'zo bo'lishingiz shart!**",
+            reply_markup=builder.as_markup()
+        )
+        
+        return
+
+# Middlewareni ro'yxatdan o'tkazish
+dp.message.outer_middleware(CheckJoinMiddleware())
+dp.callback_query.outer_middleware(CheckJoinMiddleware())
+
 # Bir vaqtning o'zida ishlov berish limitini biroz oshiramiz (Serverga qarab 10-20 ideal)
 download_semaphore = asyncio.Semaphore(15) 
 
@@ -56,6 +101,7 @@ class YouTubeCallback(CallbackData, prefix="yt"):
 # Admin uchun reklama yuborish holatlari
 class AdminStates(StatesGroup):
     waiting_for_reklama = State()
+    waiting_for_channel = State()
 
 # Yordam xabarining matni
 HELP_MESSAGE_TEXT = (
@@ -80,10 +126,10 @@ async def download_file_async(url: str, m_type: str) -> str:
                     async for chunk in r.content.iter_chunked(1024*1024): # 1 MB chunks
                         f.write(chunk)
         return fpath
-    except aiohttp.ClientError as e:
+    except aiohttp.ClientError as e: # Tarmoq bilan bog'liq xatolar
         logger.error(f"Faylni yuklashda tarmoq xatosi: {e}")
         raise # Xatoni yuqoriga uzatish
-    except Exception as e:
+    except OSError as e: # Fayl tizimi bilan bog'liq xatolar
         logger.error(f"Faylni yuklashda noma'lum xato: {e}")
         raise # Xatoni yuqoriga uzatish
 
@@ -132,6 +178,7 @@ async def handle_admin_button(query: types.CallbackQuery):
         count = get_users_count()
         builder = InlineKeyboardBuilder()
         builder.button(text="📢 Reklama tarqatish", callback_data="start_reklama")
+        builder.button(text="🔗 Kanallarni boshqarish", callback_data="manage_channels")
         builder.adjust(1)
         
         await query.message.edit_text(
@@ -142,6 +189,47 @@ async def handle_admin_button(query: types.CallbackQuery):
     else:
         await query.answer("Siz admin emassiz!", show_alert=True)
     await query.answer() # Callback query ni yopish
+
+@dp.callback_query(F.data == "manage_channels")
+async def manage_channels(query: types.CallbackQuery):
+    if query.from_user.id not in ADMIN_IDS: return
+    channels = get_mandatory_channels()
+    builder = InlineKeyboardBuilder()
+    for ch in channels:
+        builder.button(text=f"❌ {ch}", callback_data=f"del_ch:{ch}")
+    builder.button(text="➕ Kanal qo'shish", callback_data="add_channel")
+    builder.button(text="⬅️ Orqaga", callback_data="admin_panel")
+    builder.adjust(1)
+    await query.message.edit_text("📋 **Majburiy obuna kanallari:**", reply_markup=builder.as_markup())
+
+@dp.callback_query(F.data == "add_channel")
+async def add_channel_start(query: types.CallbackQuery, state: FSMContext):
+    # @A_ToolsX dagi '_' belgisi Markdown xatosi bermasligi uchun parse_mode=None bilan yuboramiz
+    await query.message.answer("✍️ Kanal username'ini yoki ID'sini yuboring (masalan: @A_ToolsX yoki -100123456789):", parse_mode=None)
+    await state.set_state(AdminStates.waiting_for_channel)
+    await query.answer()
+
+@dp.message(AdminStates.waiting_for_channel)
+async def process_channel_id(message: types.Message, state: FSMContext):
+    channel_id = message.text.strip()
+    if not (channel_id.startswith('@') or channel_id.startswith('-')):
+        await message.answer("❌ Xato format. Username @ bilan yoki ID -100 bilan boshlanishi kerak.")
+        return
+    add_mandatory_channel(channel_id)
+    await state.clear()
+    await message.answer(f"✅ {channel_id} muvaffaqiyatli qo'shildi!")
+
+@dp.callback_query(F.data.startswith("del_ch:"))
+async def delete_channel(query: types.CallbackQuery):
+    channel_id = query.data.split(":")[1]
+    remove_mandatory_channel(channel_id)
+    await query.answer(f"🗑 {channel_id} o'chirildi")
+    await manage_channels(query)
+
+@dp.callback_query(F.data == "check_subs")
+async def check_subs(query: types.CallbackQuery):
+    await query.message.delete()
+    await query.message.answer("🔄 Obuna tekshirildi. Endi botdan foydalanishingiz mumkin.")
 
 @dp.callback_query(F.data == "start_reklama")
 async def start_reklama(query: types.CallbackQuery, state: FSMContext):
@@ -210,58 +298,20 @@ async def handle_youtube_link(message: types.Message):
     wait_msg = await message.answer("⏳")
 
     # Mavjud formatlarni olish
-    formats_info = await asyncio.to_thread(get_yt_formats, url)
+    formats_info = await get_yt_formats(url)
     
     if not formats_info.get("status"):
         await wait_msg.edit_text(f"⚠️ Xatolik: {formats_info.get('error', 'Noma`lum xato')}")
         return
-
-    # 2. Agar bu Shorts video bo'lsa, INSTAGRAM kabi avtomatik yuklaymiz
-    if formats_info.get("is_short"):
-        await wait_msg.edit_text("⏳ **YouTube Shorts topildi. Yuklanmoqda...**", parse_mode=ParseMode.MARKDOWN)
-        
-        # To'g'ri formatdagi URL ni shakllantiramiz
-        url = f"https://youtu.be/{formats_info['vid']}"
-        
-        async with ChatActionSender(bot=bot, chat_id=message.chat.id, action=ChatAction.UPLOAD_VIDEO):
-            async with download_semaphore:
-                result = await asyncio.to_thread(download_yt_by_quality, url=url, quality='best')
-            
-            if result.get("status"):
-                try:
-                    file_size = os.path.getsize(result["file_path"]) / (1024 * 1024)
-                    if file_size > 50:
-                        await wait_msg.edit_text(f"⚠️ **Fayl juda katta ({file_size:.1f} MB)**. Limit 50MB.", parse_mode=ParseMode.MARKDOWN)
-                        return
-
-                    video_file = types.FSInputFile(result["file_path"])
-                    caption = f"🚀 @{BOT_USERNAME} orqali yuklandi."
-
-                    sent_msg = await message.answer_video(video=video_file, caption=caption)
-                    await wait_msg.delete()
-                    
-                    # Keshga saqlash
-                    if sent_msg and sent_msg.video:
-                        save_file_id(url, sent_msg.video.file_id, "video")
-                except Exception as e:
-                    logger.error(f"YouTube Shorts videosini yuborishda xato: {e}")
-                    await wait_msg.edit_text("❌ Videoni yuborishda xatolik yuz berdi.")
-                finally:
-                    if os.path.exists(result["file_path"]):
-                        try:
-                            os.remove(result["file_path"])
-                        except Exception as e:
-                            logger.error(f"Faylni o'chirishda xatolik: {e}")
-            else:
-                await wait_msg.edit_text(f"⚠️ Xatolik: {result.get('error', 'Noma`lum xato')}", parse_mode=ParseMode.MARKDOWN)
-        return
-
-    # Oddiy videolar uchun sifat tanlash tugmalarini yasaymiz
+    
+    # Sifat tanlash tugmalarini yasaymiz (Shorts bo'lsa ham foydalanuvchiga tanlash imkonini beramiz)
     builder = InlineKeyboardBuilder()
     vid = formats_info.get("vid")
     for fmt in formats_info["formats"]:
         quality = fmt['quality']
-        text = f"🎬 {quality}" if quality != 'audio' else "🎵 Audio (m4a)"
+        if quality == 'audio': text = "🎵 Audio"
+        elif quality == '720p': text = "🎬 720p60 HD"
+        else: text = f"🎬 {quality}"
         
         builder.button(
             text=text,
@@ -271,8 +321,10 @@ async def handle_youtube_link(message: types.Message):
     builder.adjust(2) # Har qatorda 2 ta tugma
     
     await wait_msg.delete() # Eski kutish xabarini o'chiramiz
-    caption_text = f"**Video:** `{formats_info['title']}`\n\nYuklab olish uchun formatni tanlang:"
     
+    label = "Shorts" if formats_info.get("is_short") else "Video"
+    caption_text = f"📹 **YouTube {label}:** `{formats_info['title']}`\n\nYuklab olish uchun sifatni tanlang:"
+
     if formats_info.get("thumbnail"):
         try:
             await message.answer_photo(
@@ -304,13 +356,13 @@ async def handle_youtube_quality(query: types.CallbackQuery, callback_data: YouT
     
     async with ChatActionSender(bot=bot, chat_id=query.from_user.id, action=action):
         async with download_semaphore:
-            result = await asyncio.to_thread(download_yt_by_quality, url, quality)
+            result = await download_yt_by_quality(url, quality)
             
         if result.get("status"):
             try:
                 file_size = os.path.getsize(result["file_path"]) / (1024 * 1024)
                 if file_size > 50:
-                    await query.message.edit_text(f"⚠️ **Fayl juda katta ({file_size:.1f} MB)**. Limit 50MB.", parse_mode=ParseMode.MARKDOWN)
+                    await query.message.edit_text(f"⚠️ **Fayl juda katta ({file_size:.1f} MB)**. Telegram limiti 50MB. Limitga mos format topilmadi.", parse_mode=ParseMode.MARKDOWN)
                     return
 
                 file_input = types.FSInputFile(result["file_path"])
@@ -330,7 +382,7 @@ async def handle_youtube_quality(query: types.CallbackQuery, callback_data: YouT
                 await query.message.answer("❌ Faylni yuborishda xatolik yuz berdi.")
             finally:
                 if os.path.exists(result["file_path"]):
-                    try:
+                    try: # Faylni o'chirishda ham xato bo'lishi mumkin
                         os.remove(result["file_path"])
                     except Exception as e:
                         logger.error(f"Faylni o'chirishda xatolik: {e}")
@@ -373,7 +425,7 @@ async def handle_universal(message: types.Message):
                     parse_mode=ParseMode.MARKDOWN
                 )
             return
-        except Exception as e:
+        except Exception as e: # TelegramBadRequest kabi xatolar
             logger.error(f"Keshdan yuborishda xato, qayta yuklanadi: {e}")
             
     # Yuklash statusini ko'rsatish
@@ -381,8 +433,8 @@ async def handle_universal(message: types.Message):
         wait_msg = await message.answer("⏳ **Yuklanmoqda...**", parse_mode=ParseMode.MARKDOWN)
         
         # Navbat bilan yuklash (Semaphore). Agar 3 ta odam yuklayotgan bo'lsa, 4-odam kutib turadi
-        async with download_semaphore:
-            result = await asyncio.to_thread(get_universal_media, url)
+        async with download_semaphore: # Semaphore still applies to the async operation
+            result = await get_universal_media(url) # Now get_universal_media is async
         
         if result["status"]:
             try:
@@ -411,7 +463,7 @@ async def handle_universal(message: types.Message):
                             elif first_msg.photo:
                                 save_file_id(url, first_msg.photo[-1].file_id, "photo")
                                 
-                    except Exception as e:
+                    except Exception as e: # MediaGroup yuborishda TelegramBadRequest xatosi
                         logger.error(f"MediaGroup yuborishda xato (Direct): {e}. Fayllarni yuklab ko'ramiz...")
                         # Agar direct link o'tmasa, bitta-bitta yuborish mantiqi saqlanadi (eskicha usul)
                         await wait_msg.edit_text("⚠️ To'g'ridan-to'g'ri yuborib bo'lmadi, qayta ishlanmoqda...", parse_mode=ParseMode.MARKDOWN)
@@ -456,7 +508,7 @@ async def handle_universal(message: types.Message):
                     file_path = result["file_path"]
                     file_size = os.path.getsize(file_path) / (1024 * 1024)
                     if file_size > 50:
-                        await wait_msg.edit_text(f"⚠️ **Fayl juda katta ({file_size:.1f} MB)**. Limit 50MB.", parse_mode=ParseMode.MARKDOWN)
+                        await wait_msg.edit_text(f"⚠️ **Fayl juda katta ({file_size:.1f} MB)**. Telegram limiti 50MB.", parse_mode=ParseMode.MARKDOWN)
                         return
 
                     ext = file_path.split('.')[-1].lower()
@@ -491,7 +543,7 @@ async def handle_universal(message: types.Message):
                         if file_id:
                             save_file_id(url, file_id, media_type)
             except Exception as e:
-                logger.error(f"Telegramga yuborishda xato: {e}")
+                logger.error(f"Telegramga yuborishda xato (TelegramBadRequest yoki boshqa): {e}")
                 await wait_msg.edit_text("❌ Telegramga yuborishda xatolik yuz berdi (Fayl hajmi katta yoki format mos kelmadi).")
             finally:
                 # Faylni o'chirish (Serverni to'ldirib yubormaslik uchun)

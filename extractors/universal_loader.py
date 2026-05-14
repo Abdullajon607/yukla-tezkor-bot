@@ -2,23 +2,24 @@ import os
 import uuid
 import logging
 import yt_dlp
+import asyncio # Added for asyncio.to_thread
 from config import DOWNLOAD_DIR, BASE_DIR
 from extractors.instagram_loader import get_insta_video
 from extractors.pinterest_loader import get_pinterest_media
 
-def get_universal_media(url):
+async def get_universal_media(url):
     try:
         # Instagram uchun yt-dlp ni kutmasdan to'g'ridan-to'g'ri tezkor tizimga yuboramiz
         if "instagram.com" in url.lower():
             logging.info("Instagram linki: yt-dlp chetlab o'tildi. Tezkor tizim ishga tushdi...")
-            insta_result = get_insta_video(url)
+            insta_result = await get_insta_video(url)
             if insta_result and insta_result.get("status"):
                 return insta_result
             logging.warning(f"Tezkor tizim xatosi: {insta_result.get('error', '')}. Zaxira sifatida yt-dlp ga o'tilmoqda...")
 
         # Pinterest uchun maxsus modul
         if "pinterest.com" in url.lower() or "pin.it" in url.lower():
-            pin_result = get_pinterest_media(url)
+            pin_result = await asyncio.to_thread(get_pinterest_media, url) # Run synchronous pinterest_loader in a thread
             if pin_result and pin_result.get("status"):
                 return pin_result
             
@@ -44,7 +45,9 @@ def get_universal_media(url):
             'source_address': '0.0.0.0', # IPv6 dan keladigan kechikishlarni oldini olish
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['android', 'ios', 'web_creator']
+                    'player_client': ['android', 'ios'], # Musiqiy videolar uchun eng yaxshisi
+                    'include_dash_manifest': True,
+                    'include_hls_manifest': True
                 }
             },
             'ignoreerrors': True,
@@ -53,7 +56,7 @@ def get_universal_media(url):
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             # yt_dlp orqali URL analiz qilinib, yuklab olinadi
-            info = ydl.extract_info(url, download=True)
+            info = await asyncio.to_thread(ydl.extract_info, url, download=True) # Run synchronous yt_dlp in a thread
             
             # Agar yt-dlp baribir playlist (masalan istoriya/karusel) qaytarsa
             file_path = None
@@ -80,6 +83,6 @@ def get_universal_media(url):
     except yt_dlp.utils.DownloadError as e:
         logging.error(f"Universal yuklash xatosi (yt-dlp): {e}")
         return {"status": False, "error": "Kechirasiz, bu platforma yoki linkdan yuklab bo'lmadi."}
-    except Exception as e:
+    except Exception as e: # Catch other potential errors
         logging.error(f"Universal tizim xatosi: {e}")
         return {"status": False, "error": f"Tizim xatosi yuz berdi."}

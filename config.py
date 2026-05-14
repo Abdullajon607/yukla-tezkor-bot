@@ -1,7 +1,11 @@
 import os
+from dotenv import load_dotenv
+
+# .env faylidan muhit o'zgaruvchilarini yuklash
+load_dotenv()
 
 # Telegram Bot Token
-BOT_TOKEN = "8743152447:AAHpp9-j4nSlrZW_7bYsru1VSRaPrk84AMQ" # Misol: "1234567890:ABCDEFGHIJKLMN_OPQRSTUVW_XYZ"
+BOT_TOKEN = os.getenv("BOT_TOKEN") # .env faylidan olinadi
 
 # Kataloglar
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
