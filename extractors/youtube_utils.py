@@ -25,7 +25,7 @@ def _sync_get_formats(url):
         'cookiefile': cookies_path if use_cookies else None,
         'extractor_args': {
             'youtube': {
-                # Musiqiy va himoyalangan videolarda 720p ni ochish uchun eng yaxshi mijozlar
+                # Barcha turdagi videolarda (shu jumladan Shorts) barcha sifatlarni olish uchun eng yaxshi mijozlar
                 'player_client': ['android', 'ios', 'web'],
                 # DASH manifestlarini majburan yuklash (bu 720p/1080p ni ochib beradi)
                 'include_dash_manifest': True,
@@ -119,12 +119,12 @@ def _sync_download(url, quality):
         # SIZNING TALABINGIZ: Faqat 720p60 maqsad qilinadi.
         # Agar 50MB dan oshsa, avtomatik ravishda limitga sig'adigan eng yuqori sifatga tushadi
         format_str = (
-            f'bestvideo[height<={q_num}][fps>=60][filesize<{limit}]+bestaudio[ext=m4a]/'
-            f'bestvideo[height<={q_num}][filesize<{limit}]+bestaudio[ext=m4a]/'
-            f'bestvideo[height<={q_num}][filesize<{limit}]+bestaudio/'
-            f'best[height<={q_num}][filesize<{limit}]/'
-            f'bestvideo[filesize<{limit}]+bestaudio/'
-            f'best[filesize<{limit}]/'
+            f'bestvideo[height<={q_num}][fps>=60][filesize<{limit}]+bestaudio[ext=m4a]/' # 720p60 ni birinchi urinish
+            f'bestvideo[height<={q_num}][filesize<{limit}]+bestaudio[ext=m4a]/'          # Keyin 720p (istalgan fps)
+            f'bestvideo[height<={q_num}][filesize<{limit}]+bestaudio/'                 # DASH 720p
+            f'best[height<={q_num}][filesize<{limit}]/'                               # Tayyor 720p
+            f'bestvideo[filesize<{limit}]+bestaudio/'                                # Fallback (limitga sig'adigan eng yaxshi video)
+            f'best[filesize<{limit}]/'                                                # Fallback (limitga sig'adigan istalgan format)
             f'best'
         )
 

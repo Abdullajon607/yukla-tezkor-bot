@@ -45,7 +45,7 @@ async def get_universal_media(url):
             'source_address': '0.0.0.0', # IPv6 dan keladigan kechikishlarni oldini olish
             'extractor_args': {
                 'youtube': {
-                    'player_client': ['android', 'ios'], # Musiqiy videolar uchun eng yaxshisi
+                    'player_client': ['android', 'ios', 'web'], # Kengaytirilgan mijozlar
                     'include_dash_manifest': True,
                     'include_hls_manifest': True
                 }
