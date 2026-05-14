@@ -25,14 +25,16 @@ def _sync_get_formats(url):
         'cookiefile': cookies_path if use_cookies else None,
         'extractor_args': {
             'youtube': {
-                # Barcha sifatlarni (shu jumladan DASH) olish uchun eng yaxshi mijozlar kombinatsiyasi
-                'player_client': ['web', 'android', 'ios'],
+                # Musiqiy va himoyalangan videolarda 720p ni ochish uchun eng yaxshi mijozlar
+                'player_client': ['android', 'ios', 'web'],
                 # DASH manifestlarini majburan yuklash (bu 720p/1080p ni ochib beradi)
                 'include_dash_manifest': True,
-                'include_hls_manifest': True
+                'include_hls_manifest': True,
+                'po_token': None # Ba'zi holatlarda kerak bo'lishi mumkin
             }
         },
-        'format': 'bestvideo*+bestaudio/best' # Barcha video va audio oqimlarini olishga urinish
+        # Hamma formatlarni (DASH video va audio) ko'rish uchun eng keng qamrovli buyruq
+        'format': 'bestvideo+bestaudio/best'
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
@@ -46,25 +48,28 @@ def _sync_get_formats(url):
         # Barcha noyob video sifatlarini to'playmiz
         # { '720p': 'format_id' }
         unique_video_formats = {}
-        for f in info.get('formats', []):
-            h = f.get('height')            
-            if not h or h < 144 or f.get('vcodec') == 'none':
-                continue
+        
+        # Avval barcha video formatlarni tahlil qilamiz
+        all_formats = info.get('formats', [])
+        
+        # 720p ni qidirish (DASH yoki combined)
+        for f in all_formats:
+            h = f.get('height')
+            vcodec = f.get('vcodec')
+            if h and vcodec != 'none':
+                # 720p yoki unga yaqin har qanday sifatni 720p tugmasiga bog'laymiz
+                if 700 <= h <= 750:
+                    unique_video_formats['720p'] = f['format_id']
+                # Agar 720p bo'lmasa, 480p yoki 360p ni zaxira sifatida tugmaga chiqarmaymiz, 
+                # lekin foydalanuvchi baribir 720p tugmasini ko'rishi kerak
 
-            # Standart sifatlarga yaqinligini tekshirish
-            # Biz faqat 720p ni ko'rsatmoqchi bo'lganimiz uchun, bu yerda faqat 720p ni qidiramiz
-            # Agar video 720p ga yaqin bo'lsa, uni 720p deb belgilaymiz
-            target_res = 720
-            matched_res = None
-            if abs(h - target_res) <= 10: # 10 piksel farq bilan 720p ni aniqlash
-                matched_res = target_res
-            
-            if matched_res:
-                q_str = f"{matched_res}p"
-                # DASH (video-only) oqimlar odatda yuqori sifatli bo'ladi
-                is_dash = f.get('acodec') == 'none'
-                if q_str not in unique_video_formats or is_dash:
-                    unique_video_formats[q_str] = f['format_id']
+        # Agar video o'zi juda past sifatli bo'lsa ham foydalanuvchiga tugma chiqarish kerak
+        if not unique_video_formats:
+            # Eng yaxshi mavjud video sifatini 720p tugmasiga beramiz (Fallback)
+            best_v = max([f for f in all_formats if f.get('height') and f.get('vcodec') != 'none'], 
+                         key=lambda x: x['height'], default=None)
+            if best_v:
+                unique_video_formats['720p'] = best_v['format_id']
 
         # Formats ro'yxatiga o'tkazish
         for q_str, f_id in unique_video_formats.items():
@@ -114,12 +119,12 @@ def _sync_download(url, quality):
         # SIZNING TALABINGIZ: Faqat 720p60 maqsad qilinadi.
         # Agar 50MB dan oshsa, avtomatik ravishda limitga sig'adigan eng yuqori sifatga tushadi
         format_str = (
-            f'bestvideo[height<={q_num}][fps>=60][filesize<{limit}]+bestaudio[ext=m4a]/' # 720p60 preference
-            f'bestvideo[height<={q_num}][filesize<{limit}]+bestaudio[ext=m4a]/'          # 720p standard
-            f'bestvideo[height<={q_num}][filesize<{limit}]+bestaudio/'                 # DASH
-            f'best[height<={q_num}][filesize<{limit}]/'                               # Tayyor
-            f'bestvideo[filesize<{limit}]+bestaudio/'                                # Fallback (<50MB)
-            f'best[filesize<{limit}]/'                                                # Fallback (umumiy)
+            f'bestvideo[height<={q_num}][fps>=60][filesize<{limit}]+bestaudio[ext=m4a]/'
+            f'bestvideo[height<={q_num}][filesize<{limit}]+bestaudio[ext=m4a]/'
+            f'bestvideo[height<={q_num}][filesize<{limit}]+bestaudio/'
+            f'best[height<={q_num}][filesize<{limit}]/'
+            f'bestvideo[filesize<{limit}]+bestaudio/'
+            f'best[filesize<{limit}]/'
             f'best'
         )
 
@@ -127,6 +132,9 @@ def _sync_download(url, quality):
         'format': format_str,
         'outtmpl': file_path,
         'quiet': True,
+        # Speed optimizations
+        'concurrent_fragments': 10, # Parallel download for faster merge
+        'buffersize': 1024*1024, # 1MB buffer
         'nocheckcertificate': True,
         'socket_timeout': 15,
         'no_warnings': True,

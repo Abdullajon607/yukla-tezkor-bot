@@ -36,11 +36,13 @@ logger = logging.getLogger(__name__)
 # PythonAnywhere bepul tarifi uchun avtomatik proksi sozlamasi (Kompyuteringizda xato bermaydi)
 PROXY_URL = "http://proxy.server:3128" if "PYTHONANYWHERE_SITE" in os.environ else None
 
+# Global HTTP session for reuse across the app (speeds up connection overhead)
+global_http_session = None
+
 # Standart Telegram API serveridan foydalanamiz
 session = AiohttpSession(proxy=PROXY_URL, timeout=300) # Timeoutni optimallashtiramiz
 bot = Bot(token=BOT_TOKEN, session=session, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
 dp = Dispatcher()
-
 # Global variables to store bot info (fetched once at startup)
 BOT_USERNAME = None
 BOT_FULL_NAME = None
@@ -52,7 +54,7 @@ class CheckJoinMiddleware(BaseMiddleware):
         if not user or user.id in ADMIN_IDS:
             return await handler(event, data)
 
-        channels = get_mandatory_channels()
+        channels = await asyncio.to_thread(get_mandatory_channels)
         if not channels:
             return await handler(event, data)
 
@@ -119,12 +121,13 @@ async def download_file_async(url: str, m_type: str) -> str:
     fpath = os.path.join(DOWNLOAD_DIR, fname)
     
     try:
-        async with aiohttp.ClientSession() as http_session:
-            async with http_session.get(url, headers=HEADERS, proxy=PROXY_URL, timeout=300) as r:
-                r.raise_for_status() # HTTP xatolarini tekshirish
-                with open(fpath, 'wb') as f:
-                    async for chunk in r.content.iter_chunked(1024*1024): # 1 MB chunks
-                        f.write(chunk)
+        # Using reused global session instead of creating new one
+        global global_http_session
+        async with global_http_session.get(url, headers=HEADERS, proxy=PROXY_URL, timeout=300) as r:
+            r.raise_for_status() 
+            with open(fpath, 'wb') as f:
+                async for chunk in r.content.iter_chunked(1024*1024): # 1 MB chunks
+                    f.write(chunk)
         return fpath
     except aiohttp.ClientError as e: # Tarmoq bilan bog'liq xatolar
         logger.error(f"Faylni yuklashda tarmoq xatosi: {e}")
@@ -135,7 +138,7 @@ async def download_file_async(url: str, m_type: str) -> str:
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    add_user(message.from_user.id) # Foydalanuvchini bazaga qo'shish
+    await asyncio.to_thread(add_user, message.from_user.id) # Non-blocking DB call
 
     reply_markup = None
     # Admin tugmasi (faqat adminlar uchun)
@@ -175,7 +178,7 @@ async def handle_help_button(query: types.CallbackQuery):
 @dp.callback_query(F.data == "admin_panel")
 async def handle_admin_button(query: types.CallbackQuery):
     if query.from_user.id in ADMIN_IDS:
-        count = get_users_count()
+        count = await asyncio.to_thread(get_users_count)
         builder = InlineKeyboardBuilder()
         builder.button(text="📢 Reklama tarqatish", callback_data="start_reklama")
         builder.button(text="🔗 Kanallarni boshqarish", callback_data="manage_channels")
@@ -193,7 +196,7 @@ async def handle_admin_button(query: types.CallbackQuery):
 @dp.callback_query(F.data == "manage_channels")
 async def manage_channels(query: types.CallbackQuery):
     if query.from_user.id not in ADMIN_IDS: return
-    channels = get_mandatory_channels()
+    channels = await asyncio.to_thread(get_mandatory_channels)
     builder = InlineKeyboardBuilder()
     for ch in channels:
         builder.button(text=f"❌ {ch}", callback_data=f"del_ch:{ch}")
@@ -215,14 +218,14 @@ async def process_channel_id(message: types.Message, state: FSMContext):
     if not (channel_id.startswith('@') or channel_id.startswith('-')):
         await message.answer("❌ Xato format. Username @ bilan yoki ID -100 bilan boshlanishi kerak.")
         return
-    add_mandatory_channel(channel_id)
+    await asyncio.to_thread(add_mandatory_channel, channel_id)
     await state.clear()
     await message.answer(f"✅ {channel_id} muvaffaqiyatli qo'shildi!")
 
 @dp.callback_query(F.data.startswith("del_ch:"))
 async def delete_channel(query: types.CallbackQuery):
     channel_id = query.data.split(":")[1]
-    remove_mandatory_channel(channel_id)
+    await asyncio.to_thread(remove_mandatory_channel, channel_id)
     await query.answer(f"🗑 {channel_id} o'chirildi")
     await manage_channels(query)
 
@@ -244,8 +247,8 @@ async def process_reklama(message: types.Message, state: FSMContext):
         await state.clear()
         await message.answer("❌ Reklama bekor qilindi.")
         return
-
-    users = get_all_users()
+    
+    users = await asyncio.to_thread(get_all_users)
     success = 0
     failed = 0
     
@@ -279,7 +282,7 @@ async def handle_youtube_link(message: types.Message):
     url = match.group(1)
     
     # 1. Avval bazadan (keshdan) tekshiramiz
-    cached_file = get_file_id(url)
+    cached_file = await asyncio.to_thread(get_file_id, url)
     if cached_file:
         file_id, media_type = cached_file
         caption = f"🚀 @{BOT_USERNAME} orqali yuklandi."
@@ -371,10 +374,10 @@ async def handle_youtube_quality(query: types.CallbackQuery, callback_data: YouT
                 sent_msg = None
                 if quality == 'audio': 
                     sent_msg = await query.message.answer_audio(audio=file_input, caption=caption)
-                    if sent_msg and sent_msg.audio: save_file_id(url, sent_msg.audio.file_id, "audio")
+                    if sent_msg and sent_msg.audio: await asyncio.to_thread(save_file_id, url, sent_msg.audio.file_id, "audio")
                 else: 
                     sent_msg = await query.message.answer_video(video=file_input, caption=caption)
-                    if sent_msg and sent_msg.video: save_file_id(url, sent_msg.video.file_id, "video")
+                    if sent_msg and sent_msg.video: await asyncio.to_thread(save_file_id, url, sent_msg.video.file_id, "video")
                 
                 await query.message.delete()
             except Exception as e:
@@ -401,7 +404,7 @@ async def handle_universal(message: types.Message):
     logger.info(f"Universal handler triggered for URL: {url}")
     
     # Avval bazadan tekshiramiz
-    cached_file = get_file_id(url)
+    cached_file = await asyncio.to_thread(get_file_id, url)
     if cached_file:
         file_id, media_type = cached_file
         caption = f"🚀 @{BOT_USERNAME} orqali yuklandi."
@@ -459,9 +462,9 @@ async def handle_universal(message: types.Message):
                         if sent_messages and len(urls) == 1:
                             first_msg = sent_messages[0]
                             if first_msg.video:
-                                save_file_id(url, first_msg.video.file_id, "video")
+                                await asyncio.to_thread(save_file_id, url, first_msg.video.file_id, "video")
                             elif first_msg.photo:
-                                save_file_id(url, first_msg.photo[-1].file_id, "photo")
+                                await asyncio.to_thread(save_file_id, url, first_msg.photo[-1].file_id, "photo")
                                 
                     except Exception as e: # MediaGroup yuborishda TelegramBadRequest xatosi
                         logger.error(f"MediaGroup yuborishda xato (Direct): {e}. Fayllarni yuklab ko'ramiz...")
@@ -502,7 +505,7 @@ async def handle_universal(message: types.Message):
                         
                         # Agar post 1 ta rasmdan iborat bo'lsa, bazaga kesh qilamiz (for fallback)
                         if len(urls) == 1 and first_file_id:
-                            save_file_id(url, first_file_id, first_media_type)
+                            await asyncio.to_thread(save_file_id, url, first_file_id, first_media_type)
                 else:
                     # Boshqa platformalar (YouTube, TikTok, va hk. - yt-dlp dan keladi)
                     file_path = result["file_path"]
@@ -541,7 +544,7 @@ async def handle_universal(message: types.Message):
                         elif media_type == "document" and sent_msg.document: file_id = sent_msg.document.file_id
                         
                         if file_id:
-                            save_file_id(url, file_id, media_type)
+                            await asyncio.to_thread(save_file_id, url, file_id, media_type)
             except Exception as e:
                 logger.error(f"Telegramga yuborishda xato (TelegramBadRequest yoki boshqa): {e}")
                 await wait_msg.edit_text("❌ Telegramga yuborishda xatolik yuz berdi (Fayl hajmi katta yoki format mos kelmadi).")
@@ -578,7 +581,9 @@ async def main():
     
     # Render.com uchun qalbaki veb-server ishga tushiramiz
     # Bot info ni bir marta yuklab olamiz
-    global BOT_USERNAME, BOT_FULL_NAME
+    global BOT_USERNAME, BOT_FULL_NAME, global_http_session
+    global_http_session = aiohttp.ClientSession() # Init global session
+
     bot_info = await bot.get_me()
     BOT_USERNAME = bot_info.username
     BOT_FULL_NAME = bot_info.full_name
