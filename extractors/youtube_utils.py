@@ -25,15 +25,12 @@ def _sync_get_formats(url):
         'cookiefile': cookies_path if use_cookies else None,
         'extractor_args': {
             'youtube': {
-                # DASH oqimlarni (720p, 1080p) ochish uchun eng yaxshi mijozlar
-                'player_client': ['ios', 'android'],
                 # Barcha sifatlarni (shu jumladan DASH) olish uchun eng yaxshi mijozlar kombinatsiyasi
                 'player_client': ['web', 'android', 'ios'],
                 # DASH manifestlarini majburan yuklash (bu 720p/1080p ni ochib beradi)
                 'include_dash_manifest': True,
                 'include_hls_manifest': True
             }
-        }
         },
         'format': 'bestvideo*+bestaudio/best' # Barcha video va audio oqimlarini olishga urinish
     }
@@ -55,15 +52,10 @@ def _sync_get_formats(url):
                 continue
 
             # Standart sifatlarga yaqinligini tekshirish
-            standard_resolutions = [360, 480, 720, 1080, 1440, 2160]
             # Biz faqat 720p ni ko'rsatmoqchi bo'lganimiz uchun, bu yerda faqat 720p ni qidiramiz
             # Agar video 720p ga yaqin bo'lsa, uni 720p deb belgilaymiz
             target_res = 720
             matched_res = None
-            for res in standard_resolutions:
-                if abs(h - res) <= 10: # 10 piksel farq bilan sifatni aniqlash
-                    matched_res = res
-                    break
             if abs(h - target_res) <= 10: # 10 piksel farq bilan 720p ni aniqlash
                 matched_res = target_res
             
@@ -73,7 +65,6 @@ def _sync_get_formats(url):
                 is_dash = f.get('acodec') == 'none'
                 if q_str not in unique_video_formats or is_dash:
                     unique_video_formats[q_str] = f['format_id']
-        
 
         # Formats ro'yxatiga o'tkazish
         for q_str, f_id in unique_video_formats.items():
@@ -121,7 +112,6 @@ def _sync_download(url, quality):
     else:
         q_num = quality.replace('p', '')
         # SIZNING TALABINGIZ: Faqat 720p60 maqsad qilinadi.
-        # Agar 50MB dan oshsa, avtomatik ravishda limitga sig'adigan eng yuqori sifatga tushadi.
         # Agar 50MB dan oshsa, avtomatik ravishda limitga sig'adigan eng yuqori sifatga tushadi
         format_str = (
             f'bestvideo[height<={q_num}][fps>=60][filesize<{limit}]+bestaudio[ext=m4a]/' # 720p60 preference
@@ -129,7 +119,6 @@ def _sync_download(url, quality):
             f'bestvideo[height<={q_num}][filesize<{limit}]+bestaudio/'                 # DASH
             f'best[height<={q_num}][filesize<{limit}]/'                               # Tayyor
             f'bestvideo[filesize<{limit}]+bestaudio/'                                # Fallback (<50MB)
-            f'best[filesize<{limit}]/'                                                # Fallback
             f'best[filesize<{limit}]/'                                                # Fallback (umumiy)
             f'best'
         )
@@ -142,4 +131,24 @@ def _sync_download(url, quality):
         'socket_timeout': 15,
         'no_warnings': True,
         'cookiefile': cookies_path if use_cookies else None,
-      
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['web', 'android', 'ios'],
+                'include_dash_manifest': True,
+                'include_hls_manifest': True
+            }
+        },
+        'ignoreerrors': True, # Ba'zi kichik xatolarda to'xtab qolmaslik uchun
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        return {"status": True, "file_path": ydl.prepare_filename(info)}
+
+async def download_yt_by_quality(url, quality):
+    """Tanlangan sifatda videoni yuklab olish (Asinxron)"""
+    try:
+        return await asyncio.to_thread(_sync_download, url, quality)
+    except Exception as e:
+        logger.error(f"YouTube yuklashda xato: {e}")
+        return {"status": False, "error": str(e)}
